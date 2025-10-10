@@ -489,7 +489,7 @@ function setupEventListeners() {
              )
              
              // Create blob from processed data and download
-             const resultBlob = new Blob([processedData], { type: 'image/png' })
+             const resultBlob = new Blob([new Uint8Array(processedData)], { type: 'image/png' })
              const url = URL.createObjectURL(resultBlob)
              const a = document.createElement('a')
              a.href = url
