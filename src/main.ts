@@ -15,6 +15,7 @@ interface AppState {
   alignment: 'left' | 'center' | 'right'
   backgroundColor: string
   backgroundMode: 'color' | 'blur'
+  blurIntensity: number
   aspectRatio: string
 }
 
@@ -30,6 +31,7 @@ const state: AppState = {
   alignment: 'center',
   backgroundColor: '#ffffff',
   backgroundMode: 'color',
+  blurIntensity: 10,
   aspectRatio: 'custom'
 }
 
@@ -45,7 +47,10 @@ const elements = {
   heightInput: document.getElementById('heightInput') as HTMLInputElement,
   bgColorPicker: document.getElementById('bgColorPicker') as HTMLInputElement,
   downloadBtn: document.getElementById('downloadBtn') as HTMLButtonElement,
-  resetBtn: document.getElementById('resetBtn') as HTMLButtonElement
+  resetBtn: document.getElementById('resetBtn') as HTMLButtonElement,
+  blurControls: document.getElementById('blurControls') as HTMLDivElement,
+  blurIntensity: document.getElementById('blurIntensity') as HTMLInputElement,
+  blurValue: document.getElementById('blurValue') as HTMLSpanElement
 }
 
 // Initialize ImageMagick
@@ -118,10 +123,18 @@ async function processImageWithMagick(imageData: Uint8Array, targetWidth: number
               if (bgMode === 'blur' && state.originalImage) {
                 // Create blurred background
                 img.clone((blurredImg) => {
-                  blurredImg.resize(targetWidth, targetHeight)
-                  blurredImg.blur(0, 8)
-                  canvas.composite(blurredImg, CompositeOperator.Over, new Point(0, 0))
-                  blurredImg.dispose()
+                  try {
+                    // Resize to target dimensions first
+                    blurredImg.resize(targetWidth, targetHeight)
+                    // Apply Gaussian blur with dynamic intensity
+                    blurredImg.blur(0, state.blurIntensity)
+                    // Composite the blurred image as background
+                    canvas.composite(blurredImg, CompositeOperator.Over, new Point(0, 0))
+                  } catch (error) {
+                    console.error('Error creating blurred background:', error)
+                  } finally {
+                    blurredImg.dispose()
+                  }
                 })
               }
               
@@ -192,8 +205,8 @@ function drawImageToCanvas() {
     state.ctx.fillStyle = state.backgroundColor
     state.ctx.fillRect(0, 0, state.targetWidth, state.targetHeight)
   } else if (state.backgroundMode === 'blur' && state.originalImage) {
-    // Draw blurred background
-    state.ctx.filter = 'blur(8px)'
+    // Draw blurred background with dynamic intensity
+    state.ctx.filter = `blur(${state.blurIntensity}px)`
     state.ctx.drawImage(state.originalImage, 0, 0, state.targetWidth, state.targetHeight)
     state.ctx.filter = 'none'
   }
@@ -416,34 +429,114 @@ function setupEventListeners() {
       target.classList.add('active')
       
       state.backgroundMode = bgMode
+      
+      // Show/hide blur controls
+      if (bgMode === 'blur') {
+        elements.blurControls.style.display = 'block'
+      } else {
+        elements.blurControls.style.display = 'none'
+      }
+      
       drawImageToCanvas()
     })
   })
   
+  // Blur intensity control
+  elements.blurIntensity.addEventListener('input', () => {
+    state.blurIntensity = parseInt(elements.blurIntensity.value)
+    elements.blurValue.textContent = elements.blurIntensity.value
+    drawImageToCanvas()
+  })
+  
   // Action buttons
   elements.downloadBtn.addEventListener('click', async () => {
-    if (!state.canvas) return
+    if (!state.canvas || !state.originalImage) return
     
     try {
       elements.downloadBtn.classList.add('loading')
       elements.downloadBtn.textContent = 'Processing...'
       
-      // Convert canvas to blob and download
-      state.canvas.toBlob((blob) => {
-        if (blob) {
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `fitted-image-${state.targetWidth}x${state.targetHeight}.png`
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }
+      // Use ImageMagick for high-quality processing when blur is enabled
+      if (state.backgroundMode === 'blur') {
+        // Convert original image to ImageData for ImageMagick processing
+        const tempCanvas = document.createElement('canvas')
+        const tempCtx = tempCanvas.getContext('2d')!
+        tempCanvas.width = state.originalImage.naturalWidth
+        tempCanvas.height = state.originalImage.naturalHeight
+        tempCtx.drawImage(state.originalImage, 0, 0)
         
-        elements.downloadBtn.classList.remove('loading')
-        elements.downloadBtn.textContent = 'Download'
-      }, 'image/png')
+        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height)
+        // Convert RGBA to PNG format for ImageMagick
+         tempCanvas.toBlob(async (blob) => {
+           if (!blob) {
+             elements.downloadBtn.classList.remove('loading')
+             elements.downloadBtn.textContent = 'Download'
+             return
+           }
+           
+           try {
+             const arrayBuffer = await blob.arrayBuffer()
+             const uint8Array = new Uint8Array(arrayBuffer)
+             
+             const processedData = await processImageWithMagick(
+               uint8Array,
+               state.targetWidth,
+               state.targetHeight,
+               state.backgroundColor,
+               state.backgroundMode,
+               state.offsetX,
+               state.offsetY
+             )
+             
+             // Create blob from processed data and download
+             const resultBlob = new Blob([processedData], { type: 'image/png' })
+             const url = URL.createObjectURL(resultBlob)
+             const a = document.createElement('a')
+             a.href = url
+             a.download = `fitted-image-${state.targetWidth}x${state.targetHeight}.png`
+             document.body.appendChild(a)
+             a.click()
+             document.body.removeChild(a)
+             URL.revokeObjectURL(url)
+             
+             elements.downloadBtn.classList.remove('loading')
+             elements.downloadBtn.textContent = 'Download'
+           } catch (magickError) {
+             console.error('ImageMagick processing failed, falling back to canvas:', magickError)
+             // Fallback to canvas method
+             state.canvas.toBlob((canvasBlob) => {
+               if (canvasBlob) {
+                 const url = URL.createObjectURL(canvasBlob)
+                 const a = document.createElement('a')
+                 a.href = url
+                 a.download = `fitted-image-${state.targetWidth}x${state.targetHeight}.png`
+                 document.body.appendChild(a)
+                 a.click()
+                 document.body.removeChild(a)
+                 URL.revokeObjectURL(url)
+               }
+               elements.downloadBtn.classList.remove('loading')
+               elements.downloadBtn.textContent = 'Download'
+             }, 'image/png')
+           }
+         }, 'image/png')
+      } else {
+         // Use canvas method for color backgrounds
+         state.canvas.toBlob((blob) => {
+           if (blob) {
+             const url = URL.createObjectURL(blob)
+             const a = document.createElement('a')
+             a.href = url
+             a.download = `fitted-image-${state.targetWidth}x${state.targetHeight}.png`
+             document.body.appendChild(a)
+             a.click()
+             document.body.removeChild(a)
+             URL.revokeObjectURL(url)
+           }
+           elements.downloadBtn.classList.remove('loading')
+           elements.downloadBtn.textContent = 'Download'
+         }, 'image/png')
+       }
     } catch (error) {
       console.error('Download failed:', error)
       elements.downloadBtn.classList.remove('loading')
@@ -513,6 +606,11 @@ function moveImage(direction: string, pixels: number) {
 // Initialize the application
 function init() {
   setupEventListeners()
+  
+  // Initialize blur controls
+  elements.blurIntensity.value = state.blurIntensity.toString()
+  elements.blurValue.textContent = state.blurIntensity.toString()
+  elements.blurControls.style.display = state.backgroundMode === 'blur' ? 'block' : 'none'
   
   // Initialize ImageMagick in the background
   initializeMagick().catch(console.error)

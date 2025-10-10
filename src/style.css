@@ -345,6 +345,57 @@ body {
   border-color: var(--primary-color);
 }
 
+/* Blur Controls */
+.blur-controls {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.blur-intensity-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#blurIntensity {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+
+#blurIntensity::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow);
+}
+
+#blurIntensity::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow);
+}
+
+#blurValue {
+  min-width: 24px;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* Action Buttons */
 .action-btn {
   padding: 0.75rem 1.5rem;
