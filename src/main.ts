@@ -504,6 +504,7 @@ function setupEventListeners() {
            } catch (magickError) {
              console.error('ImageMagick processing failed, falling back to canvas:', magickError)
              // Fallback to canvas method
+             //@ts-expect-error
              state.canvas.toBlob((canvasBlob) => {
                if (canvasBlob) {
                  const url = URL.createObjectURL(canvasBlob)
