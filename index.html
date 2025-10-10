@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Fitter</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Main Container -->
+      <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+          <h1>Image Fitter</h1>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+          <!-- Upload Area -->
+          <div class="upload-section" id="uploadSection">
+            <div class="upload-area" id="uploadArea">
+              <div class="upload-content">
+                <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7,10 12,15 17,10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <p class="upload-text">Drop an image here or click to upload</p>
+                <p class="upload-subtext">Supports JPG, PNG, GIF, WebP</p>
+              </div>
+              <input type="file" id="fileInput" accept="image/*" hidden>
+            </div>
+          </div>
+
+          <!-- Image Preview Area -->
+          <div class="preview-section" id="previewSection" style="display: none;">
+            <div class="preview-container">
+              <div class="canvas-container" id="canvasContainer">
+                <canvas id="previewCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- Bottom Control Bar -->
+        <div class="control-bar" id="controlBar" style="display: none;">
+          <!-- Aspect Ratio Controls -->
+          <div class="control-section">
+            <label class="control-label">Aspect Ratio</label>
+            <div class="aspect-ratio-buttons">
+              <button class="aspect-btn" data-ratio="1:1">1:1</button>
+              <button class="aspect-btn" data-ratio="16:9">16:9</button>
+              <button class="aspect-btn" data-ratio="4:3">4:3</button>
+              <button class="aspect-btn" data-ratio="3:2">3:2</button>
+              <button class="aspect-btn active" data-ratio="custom">Custom</button>
+            </div>
+          </div>
+
+          <!-- Custom Resolution -->
+          <div class="control-section">
+            <label class="control-label">Resolution</label>
+            <div class="resolution-inputs">
+              <input type="number" id="widthInput" placeholder="Width" min="1" value="800">
+              <span class="resolution-separator">×</span>
+              <input type="number" id="heightInput" placeholder="Height" min="1" value="600">
+            </div>
+          </div>
+
+          <!-- Position Controls -->
+          <div class="control-section">
+            <label class="control-label">Position</label>
+            <div class="position-controls">
+              <div class="alignment-buttons">
+                <button class="align-btn" data-align="left">Left</button>
+                <button class="align-btn active" data-align="center">Center</button>
+                <button class="align-btn" data-align="right">Right</button>
+              </div>
+              <div class="arrow-controls">
+                <button class="arrow-btn" data-direction="up">↑</button>
+                <div class="arrow-row">
+                  <button class="arrow-btn" data-direction="left">←</button>
+                  <button class="arrow-btn" data-direction="right">→</button>
+                </div>
+                <button class="arrow-btn" data-direction="down">↓</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Background Controls -->
+          <div class="control-section">
+            <label class="control-label">Background</label>
+            <div class="background-controls">
+              <input type="color" id="bgColorPicker" value="#ffffff">
+              <button class="bg-option-btn active" data-bg="color">Color</button>
+              <button class="bg-option-btn" data-bg="blur">Blur</button>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="control-section">
+            <button class="action-btn primary" id="downloadBtn">Download</button>
+            <button class="action-btn secondary" id="resetBtn">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
