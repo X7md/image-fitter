@@ -7,7 +7,7 @@
  * `window.__imageFitter.render()` and asserts the output dimensions and actual pixels:
  * the four quadrant colours inside the placement rectangle and the background colour
  * outside it. It also uploads a real BMP through the file input, compares the wasm
- * result against the Canvas-2D preview on a sampling grid, and checks that Save writes
+ * result against the engine's preview frame on a sampling grid, and checks that Save writes
  * a real PNG.
  *
  * Run with: npm run test:browser
@@ -149,8 +149,19 @@ interface PageHook {
     toast: { text: string; kind: string } | null
   }
   lastResult?: Bitmap
+  engineVersion: string
   loadBitmap(bitmap: Bitmap): void
   render(): Promise<Bitmap>
+  whenIdle(): Promise<void>
+}
+
+/** Waits until the engine has painted the preview frame for the current options. */
+async function waitForPreview(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const hook = (window as unknown as { __imageFitter?: PageHook }).__imageFitter
+    if (!hook) throw new Error('window.__imageFitter is missing')
+    await hook.whenIdle()
+  })
 }
 
 async function readState(page: Page): Promise<PageHook['state']> {
@@ -376,6 +387,13 @@ async function main(): Promise<void> {
     const booted = await readState(page)
     check(booted.engine === 'ready', `wasm engine status is 'ready' (got '${booted.engine}')`)
     console.log(`  ok    engine ready after ${engineMs} ms`)
+    const bootUi = await page.evaluate(() => ({
+      bootHidden: (document.getElementById('boot') as HTMLElement).hidden,
+      shellHidden: (document.getElementById('appShell') as HTMLElement).hidden,
+      version: (window as unknown as { __imageFitter?: PageHook }).__imageFitter?.engineVersion ?? '',
+    }))
+    check(bootUi.bootHidden && !bootUi.shellHidden, 'boot screen is hidden and the editor shell is shown once the engine is ready')
+    check(bootUi.version.length > 0, `engine version reported by the worker (${bootUi.version})`)
 
     check((await page.$('#dropzone')) !== null, 'empty state shows the dropzone')
     check(await page.$eval('#saveBtn', (el) => (el as HTMLButtonElement).disabled), 'Save is disabled with no image')
@@ -580,10 +598,45 @@ async function main(): Promise<void> {
     const anyWhite = blurProbe.pixels.some((p) => maxDiff(p, WHITE) <= 2)
     check(!anyWhite, 'the blurred background is not the white colour background')
     console.log(`  ok    blur-background fit took ${blurMs} ms at ${blurProbe.width}x${blurProbe.height}`)
+
+    // The on-screen preview must show the blur too (it is rendered by the engine, not by
+    // ctx.filter, which iOS Safari ignores). Sample the band left of the image on the
+    // preview canvas itself.
+    await waitForPreview(page)
+    const previewBand = await page.evaluate(
+      (fx: number, targetW: number, targetH: number) => {
+        const canvas = document.getElementById('previewCanvas') as HTMLCanvasElement
+        const ctx = canvas.getContext('2d')
+        if (!ctx) throw new Error('no 2d context')
+        const px = Math.round((fx * canvas.width) / targetW)
+        const ys = [0.1, 0.5, 0.9].map((f) => Math.round(f * (canvas.height - 1)))
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        return {
+          hidden: canvas.hidden,
+          size: [canvas.width, canvas.height],
+          pixels: ys.map((py) => {
+            const i = (py * canvas.width + px) * 4
+            return [img.data[i]!, img.data[i + 1]!, img.data[i + 2]!, img.data[i + 3]!] as RGBA
+          }),
+          target: [targetW, targetH],
+        }
+      },
+      bandX,
+      Math.round(s.options.width),
+      Math.round(s.options.height),
+    )
+    check(!previewBand.hidden, 'the preview canvas is visible in blur mode')
+    check(
+      Math.abs(previewBand.size[0]! / previewBand.size[1]! - previewBand.target[0]! / previewBand.target[1]!) < 0.02,
+      `preview frame keeps the target aspect (${previewBand.size.join('x')} for ${previewBand.target.join('x')})`,
+    )
+    const previewFlat = previewBand.pixels.every((p) => maxDiff(p, previewBand.pixels[0]!) === 0)
+    check(!previewFlat, 'the preview canvas shows a blurred (varying) background band, not a flat fill')
+    check(!previewBand.pixels.some((p) => maxDiff(p, WHITE) <= 2), 'the preview canvas band is not the white colour background')
     await page.screenshot({ path: join(OUT_DIR, 'browser-blur.png') })
 
-    // 9. wasm result vs Canvas-2D preview ---------------------------------------
-    step('wasm vs canvas preview')
+    // 9. full-resolution wasm result vs the engine-rendered preview frame ---------
+    step('wasm vs preview frame')
     await page.click('[data-bg="color"]')
     await setInputValue(page, '#bgColorInput', '#204080')
     await clickTool(page, 'position')
@@ -616,12 +669,14 @@ async function main(): Promise<void> {
     check(grid.length >= 20, `grid has enough safe sample points (${grid.length})`)
 
     const wasmGrid = await renderAndProbe(page, grid)
+    await waitForPreview(page)
     const canvasGrid = await page.evaluate(
       (pts: Array<[number, number]>, targetW: number, targetH: number) => {
         const canvas = document.getElementById('previewCanvas') as HTMLCanvasElement
         const ctx = canvas.getContext('2d')
         if (!ctx) throw new Error('no 2d context')
-        // The preview backing store is the target size, capped on its long side.
+        // The preview canvas holds the engine's preview frame: the same fit rendered by
+        // MagickWand at the target size capped on its long side.
         const sx = canvas.width / targetW
         const sy = canvas.height / targetH
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height)

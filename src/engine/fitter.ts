@@ -14,8 +14,14 @@
 import { loadMagick } from '../wasm/magick'
 import type { LoadOptions, Magick, MagickSource, MagickWand } from '../wasm/magick'
 import { CompositeOperator, FilterType } from '../wasm/enums'
-import { clampSigma, computePlacement } from './types'
+import { BLUR_RANGE, computePlacement } from './types'
 import type { Bitmap, FitOptions } from './types'
+
+/** Blur sigma as the engine applies it: finite and non-negative. Fractional values are
+ *  allowed (preview renders scale the sigma down with the canvas). */
+function engineSigma(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : BLUR_RANGE.default
+}
 
 export class Fitter {
   readonly magick: Magick
@@ -38,7 +44,7 @@ export class Fitter {
         // A blurred, stretched copy of the source fills the whole canvas.
         canvas.constitute(src.width, src.height, src.data)
         canvas.resize(width, height, FilterType.Lanczos)
-        canvas.blur(0, clampSigma(options.background.sigma))
+        canvas.blur(0, engineSigma(options.background.sigma))
       } else {
         canvas.newImage(width, height, options.background.color)
       }
@@ -55,6 +61,21 @@ export class Fitter {
     } finally {
       foreground?.dispose()
       canvas?.dispose()
+    }
+  }
+
+  /** Resample a bitmap to `width x height` with Lanczos (used for preview sources). */
+  scale(src: Bitmap, width: number, height: number): Bitmap {
+    const w = Math.max(1, Math.round(width))
+    const h = Math.max(1, Math.round(height))
+    let wand: MagickWand | undefined
+    try {
+      wand = this.magick.newWand()
+      wand.constitute(src.width, src.height, src.data)
+      wand.resize(w, h, FilterType.Lanczos)
+      return { width: w, height: h, data: wand.exportRGBA(0, 0, w, h) }
+    } finally {
+      wand?.dispose()
     }
   }
 

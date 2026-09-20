@@ -1,4 +1,4 @@
 import './style.css'
-import { startApp } from './ui/app'
+import { boot } from './ui/boot'
 
-startApp()
+void boot()

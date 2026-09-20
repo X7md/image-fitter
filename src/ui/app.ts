@@ -1,5 +1,9 @@
 // Wires the whole UI together: DOM refs, event handling, and the single render()
 // function that keeps the DOM in sync with the store. No framework.
+//
+// Every pixel on the stage comes from the wasm engine (MagickWand in a worker): a
+// change to the fit options schedules a preview render (latest-wins, one in flight),
+// and Save renders the same pipeline at full resolution.
 import {
   DEFAULT_OPTIONS,
   BLUR_RANGE,
@@ -9,16 +13,13 @@ import {
   presetDimensions,
 } from '../engine/types'
 import type { Align, AlignY, AspectPreset, Bitmap, FitOptions } from '../engine/types'
-import { createFitter } from '../engine/fitter'
-import type { Fitter } from '../engine/fitter'
-// eslint-disable-next-line import/no-unresolved -- built by the build agent
-import wasmUrl from '../wasm/magick.wasm?url'
+import type { EngineClient } from '../engine/client'
 import { createInitialState, createStore, TOOLS } from './state'
 import type { AppState, Tool } from './state'
 import { icons } from './icons'
 import { installDebugHook } from './debug'
 import type { ImageFitterDebug } from './debug'
-import { bitmapToImageBitmap, decodeImageFile, drawPreview, imageBitmapToBitmap } from './stage'
+import { bitmapToPngBlob, decodeImageFile, drawBitmap } from './stage'
 import { renderPanel } from './panels'
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -56,9 +57,13 @@ function freshOptions(width: number, height: number): FitOptions {
   }
 }
 
+function cloneOptions(options: FitOptions): FitOptions {
+  return { ...options, background: { ...options.background } }
+}
+
 const DEFAULT_COLOR = DEFAULT_OPTIONS.background.mode === 'color' ? DEFAULT_OPTIONS.background.color : '#ffffff'
 
-export function startApp(): void {
+export function startApp(engine: EngineClient, engineVersion: string): void {
   const store = createStore(createInitialState())
 
   const els = {
@@ -71,6 +76,7 @@ export function startApp(): void {
     dropzone: byId('dropzone'),
     dragOverlay: byId('dragOverlay'),
     sizeBadge: byId('sizeBadge'),
+    sizeText: byId('sizeText'),
     optionPanel: byId('optionPanel'),
     toolStrip: byId('toolStrip'),
     toast: byId('toast'),
@@ -186,18 +192,30 @@ export function startApp(): void {
     })
   }
 
-  /** Release the decoded bitmap of the image being replaced (ImageBitmaps are not GC'd
-   *  promptly and can hold GPU memory). */
-  function closePreview(state: AppState): void {
-    state.source?.preview?.close()
-  }
+  // ---- source loading --------------------------------------------------------
 
-  function loadFromPreview(preview: ImageBitmap, name: string, raw: Bitmap | null): void {
+  /** Bumped for every new source; preview results tagged with an older token are dropped. */
+  let sourceToken = 0
+
+  /** Hand the pixels to the engine (posted before the state changes, so any render()
+   *  that follows is guaranteed to see the new source in the worker's queue). */
+  function installSource(bitmap: Bitmap, name: string): void {
+    const token = ++sourceToken
+    const { width, height } = bitmap
+    engine.setSource(bitmap).catch((err: unknown) => {
+      if (token !== sourceToken) return
+      console.error('Engine rejected the image', err)
+      showToast('Could not load that image into the engine')
+      store.update((s) => {
+        s.source = null
+        s.preview = null
+      })
+    })
     store.update((s) => {
-      closePreview(s)
-      s.source = { width: preview.width, height: preview.height, name, preview, raw }
+      s.source = { width, height, name }
+      s.preview = null
       s.preset = 'custom'
-      s.options = freshOptions(preview.width, preview.height)
+      s.options = freshOptions(width, height)
       s.color = DEFAULT_COLOR
       s.sigma = BLUR_RANGE.default
     })
@@ -209,8 +227,8 @@ export function startApp(): void {
       return
     }
     try {
-      const preview = await decodeImageFile(file)
-      loadFromPreview(preview, file.name, null)
+      const bitmap = await decodeImageFile(file)
+      installSource(bitmap, file.name)
     } catch (err) {
       console.error('Failed to decode image', err)
       showToast('Could not read that image')
@@ -218,102 +236,91 @@ export function startApp(): void {
   }
 
   function loadSourceFromBitmap(bitmap: Bitmap): void {
+    // Copy: setSource transfers the buffer and the caller may still hold theirs.
+    installSource({ width: bitmap.width, height: bitmap.height, data: new Uint8ClampedArray(bitmap.data) }, 'debug-bitmap')
+  }
+
+  // ---- preview rendering (engine, latest-wins) -------------------------------
+
+  let previewInFlight = false
+  let previewDirty = false
+  let previewKey = ''
+  const idleWaiters: Array<() => void> = []
+
+  function engineFailed(err: unknown): void {
+    console.error('Engine render failed', err)
     store.update((s) => {
-      closePreview(s)
-      s.source = { width: bitmap.width, height: bitmap.height, name: 'debug-bitmap', preview: null, raw: bitmap }
-      s.preset = 'custom'
-      s.options = freshOptions(bitmap.width, bitmap.height)
-      s.color = DEFAULT_COLOR
-      s.sigma = BLUR_RANGE.default
+      s.engine = 'failed'
     })
-    bitmapToImageBitmap(bitmap)
-      .then((preview) => {
-        store.update((s) => {
-          if (s.source && s.source.raw === bitmap) s.source.preview = preview
-        })
-      })
-      .catch(() => {
-        /* preview is best-effort; raw pixels are already usable for fit()/render() */
-      })
+    showToast('Image engine failed — reload the page')
   }
 
-  async function ensureRawBitmap(): Promise<Bitmap> {
-    const s = store.state
-    if (!s.source) throw new Error('No image loaded')
-    if (s.source.raw) return s.source.raw
-    if (!s.source.preview) throw new Error('Image is not decoded yet')
-    const raw = imageBitmapToBitmap(s.source.preview)
-    store.update((st) => {
-      if (st.source) st.source.raw = raw
-    })
-    return raw
-  }
-
-  // ---- wasm engine + debug hook ---------------------------------------------
-
-  function loadEngine(): Promise<Fitter> {
-    return createFitter(wasmUrl)
-      .then((fitter) => {
-        store.update((s) => {
-          s.engine = 'ready'
-        })
-        return fitter
-      })
-      .catch((err: unknown) => {
-        console.error('Failed to load the image engine', err)
-        store.update((s) => {
-          s.engine = 'failed'
-        })
-        throw err instanceof Error ? err : new Error(String(err))
-      })
-  }
-
-  let fitterPromise: Promise<Fitter> = loadEngine()
-
-  async function renderFit(): Promise<Bitmap> {
-    const raw = await ensureRawBitmap()
+  async function runPreview(): Promise<void> {
+    previewInFlight = true
     try {
-      const fitter = await fitterPromise
-      return record(fitter.fit(raw, store.state.options))
-    } catch (err) {
-      if (!(err instanceof WebAssembly.RuntimeError)) throw err
-      // A wasm trap does not restore the module's shadow-stack pointer, so every later
-      // call into that instance would trap too. The instance is unrecoverable: drop it,
-      // load a fresh one and retry the fit exactly once.
-      console.warn('The image engine trapped; reloading it and retrying once.', err)
-      fitterPromise = loadEngine()
-      const fresh = await fitterPromise
-      return record(fresh.fit(raw, store.state.options))
+      while (previewDirty) {
+        previewDirty = false
+        const token = sourceToken
+        if (!store.state.source) continue
+        const options = cloneOptions(store.state.options)
+        try {
+          const frame = await engine.fit(options, 'preview')
+          if (token !== sourceToken) continue
+          store.update((s) => {
+            s.preview = frame
+          })
+        } catch (err) {
+          if (token !== sourceToken) continue
+          engineFailed(err)
+          previewDirty = false
+        }
+      }
+    } finally {
+      previewInFlight = false
+      store.update((s) => {
+        s.rendering = false
+      })
+      for (const resolve of idleWaiters.splice(0)) resolve()
     }
   }
 
-  function record(result: Bitmap): Bitmap {
+  /** Runs before render(): schedules a preview whenever the source or options changed. */
+  function previewWatcher(state: AppState): void {
+    const key = state.source ? `${sourceToken}|${JSON.stringify(state.options)}` : ''
+    if (key === previewKey) return
+    previewKey = key
+    if (!state.source) return
+    previewDirty = true
+    state.rendering = true
+    if (!previewInFlight) void runPreview()
+  }
+
+  function whenIdle(): Promise<void> {
+    if (!previewInFlight && !previewDirty) return Promise.resolve()
+    return new Promise((resolve) => idleWaiters.push(resolve))
+  }
+
+  // ---- full render / debug hook ----------------------------------------------
+
+  async function renderFull(): Promise<Bitmap> {
+    if (!store.state.source) throw new Error('No image loaded')
+    const result = await engine.fit(cloneOptions(store.state.options), 'full')
     debugHook.lastResult = result
     return result
   }
 
   const debugHook: ImageFitterDebug = {
     state: store.state,
-    // A getter, because a trap can replace the promise with a freshly loaded engine.
-    get fitter() {
-      return fitterPromise
-    },
+    engine,
+    engineVersion,
     lastResult: undefined,
     loadBitmap: loadSourceFromBitmap,
-    render: renderFit,
+    render: renderFull,
+    whenIdle,
   }
   installDebugHook(debugHook)
 
   // ---- save / download -------------------------------------------------------
-
-  function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob)
-        else reject(new Error('toBlob failed'))
-      }, 'image/png')
-    })
-  }
 
   async function downloadBlob(blob: Blob, filename: string): Promise<void> {
     const url = URL.createObjectURL(blob)
@@ -329,20 +336,6 @@ export function startApp(): void {
     }
   }
 
-  async function downloadBitmap(bitmap: Bitmap, targetW: number, targetH: number): Promise<void> {
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = bitmap.height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('2D canvas context unavailable')
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(bitmap.data), bitmap.width, bitmap.height), 0, 0)
-    await downloadBlob(await canvasToBlob(canvas), `fitted-image-${targetW}x${targetH}.png`)
-  }
-
-  async function downloadPreviewCanvas(targetW: number, targetH: number): Promise<void> {
-    await downloadBlob(await canvasToBlob(els.canvas), `fitted-image-${targetW}x${targetH}.png`)
-  }
-
   async function handleSave(): Promise<void> {
     if (!store.state.source || store.state.busy) return
     const { width, height } = store.state.options
@@ -350,17 +343,11 @@ export function startApp(): void {
       s.busy = true
     })
     try {
-      const result = await renderFit()
-      await downloadBitmap(result, width, height)
+      const result = await renderFull()
+      await downloadBlob(await bitmapToPngBlob(result), `fitted-image-${width}x${height}.png`)
     } catch (err) {
-      console.error('Engine render failed, falling back to the preview canvas', err)
-      try {
-        await downloadPreviewCanvas(width, height)
-        showToast('Engine unavailable — saved the preview instead')
-      } catch (fallbackErr) {
-        console.error('Fallback save failed', fallbackErr)
-        showToast('Save failed')
-      }
+      console.error('Save failed', err)
+      showToast('Save failed')
     } finally {
       store.update((s) => {
         s.busy = false
@@ -371,6 +358,7 @@ export function startApp(): void {
   // ---- rendering ---------------------------------------------------------------
 
   let panelKey: string | null = null
+  let drawnPreview: Bitmap | null = null
 
   function patchPanelValues(state: AppState): void {
     const panel = els.optionPanel
@@ -414,19 +402,26 @@ export function startApp(): void {
 
   function render(state: AppState): void {
     const hasSource = !!state.source
+    const hasFrame = hasSource && !!state.preview
 
     els.stage.classList.toggle('is-empty', !hasSource)
+    els.stage.classList.toggle('is-rendering', hasSource && state.rendering)
     els.dropzone.hidden = hasSource
-    els.canvas.hidden = !hasSource
+    els.canvas.hidden = !hasFrame
     els.sizeBadge.hidden = !hasSource
     if (hasSource) {
-      els.sizeBadge.textContent = `${Math.round(state.options.width)} × ${Math.round(state.options.height)}`
-      drawPreview(els.canvas, state)
+      els.sizeText.textContent = `${Math.round(state.options.width)} × ${Math.round(state.options.height)}`
+    }
+    if (state.preview && state.preview !== drawnPreview) {
+      drawBitmap(els.canvas, state.preview)
+      drawnPreview = state.preview
+    } else if (!state.preview) {
+      drawnPreview = null
     }
     els.dragOverlay.hidden = !state.dragging
 
     els.resetBtn.toggleAttribute('disabled', !hasSource)
-    els.saveBtn.toggleAttribute('disabled', !hasSource || state.busy)
+    els.saveBtn.toggleAttribute('disabled', !hasSource || state.busy || state.engine !== 'ready')
     els.saveBtn.classList.toggle('is-busy', state.busy)
     byId('saveIcon').innerHTML = state.busy ? icons.spinner : icons.save
 
@@ -450,6 +445,8 @@ export function startApp(): void {
     }
   }
 
+  // Order matters: the watcher marks `rendering` before render() paints the same pass.
+  store.subscribe(previewWatcher)
   store.subscribe(render)
 
   // ---- events -------------------------------------------------------------

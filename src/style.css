@@ -83,6 +83,59 @@ button {
   background: var(--app-bg);
 }
 
+.shell[hidden] {
+  display: none;
+}
+
+/* ---------- Boot screen ---------- */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--app-bg);
+  color: var(--text);
+  z-index: 30;
+}
+
+.boot[hidden] {
+  display: none;
+}
+
+.boot-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgb(255 255 255 / 0.12);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.boot.is-error .boot-spinner {
+  animation: none;
+  border-color: var(--danger);
+}
+
+.boot-title {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.boot-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.boot.is-error .boot-status {
+  color: var(--danger);
+}
+
 /* ---------- Top bar ---------- */
 
 .topbar {
@@ -225,6 +278,34 @@ button {
   border: 1px solid rgb(255 255 255 / 0.08);
   backdrop-filter: blur(6px);
   pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Small pulsing dot next to the size while the engine renders a preview. */
+.render-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.stage.is-rendering .render-dot {
+  opacity: 1;
+  animation: pulse 0.8s ease-in-out infinite;
+}
+
+.stage.is-rendering .preview-canvas {
+  filter: saturate(0.92);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .dropzone {

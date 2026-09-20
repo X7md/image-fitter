@@ -276,21 +276,33 @@ export async function createFitter(source: Parameters<typeof loadMagick>[0], opt
 
 ## 5. UI contract
 
-* `src/main.ts` imports `./style.css`, `./ui/app.ts` (or similar) and starts the app.
-  It loads the wasm lazily in the background via
-  `import wasmUrl from '../wasm/magick.wasm?url'` and `createFitter(wasmUrl)`.
-  **As built** that import statement lives in `src/ui/app.ts`, one directory deeper, so
-  that `../wasm/magick.wasm` resolves to the committed `src/wasm/magick.wasm`; `main.ts`
-  imports the stylesheet and calls `startApp()`.
-* **Live preview** is drawn with Canvas 2D using `computePlacement` (fast, every input
-  change). Blur preview: `ctx.filter = 'blur(<sigma>px)'` of the source stretched to WxH.
-* **Save/Download** decodes the loaded file to a `Bitmap` (createImageBitmap +
-  OffscreenCanvas/canvas getImageData), calls `fitter.fit`, encodes PNG with the
-  canvas (`toBlob('image/png')`), and downloads `fitted-image-<W>x<H>.png`.
-  Show a busy state on the Save button while rendering. If wasm failed to load, fall
-  back to downloading the preview canvas and surface a toast.
-* Debug hook for tests: `window.__imageFitter = { state, fitter, lastResult?: Bitmap,
-  loadBitmap(b: Bitmap): void, render(): Promise<Bitmap> }` (typed in `src/ui/debug.ts`).
+* **Wasm first.** `src/main.ts` imports `./style.css` and calls `boot()`
+  (`src/ui/boot.ts`): it starts the engine worker (`src/engine/worker.ts`, which owns
+  `import wasmUrl from '../wasm/magick.wasm?url'` + `createFitter(wasmUrl)`), shows a
+  boot screen (`#boot`) until the worker reports `ready`, then reveals `#appShell` and
+  calls `startApp(engine, version)`. If the engine fails to load the boot screen shows
+  the error and a Retry button; the editor is never shown without an engine.
+* **Engine in a worker.** `src/engine/client.ts` (`EngineClient`) talks to the worker
+  over the protocol in `src/engine/protocol.ts`: `setSource(bitmap)` transfers the
+  decoded RGBA pixels once (the worker also keeps a Lanczos-downscaled copy capped at
+  `PREVIEW_LONG_SIDE` = 1280 px); `fit(options, 'preview' | 'full')` renders. Requests
+  are processed in order; a wasm trap reloads the module inside the worker and retries once.
+* **Live preview is rendered by MagickWand**, not by Canvas 2D: every change to the
+  options schedules a `'preview'` fit (latest-wins: one in flight, the newest options
+  render next). The worker scales target size, offsets and blur sigma by
+  `previewScale(W, H)` and fits the downscaled source, so the frame is the real pipeline
+  at reduced size. The result is blitted onto `#previewCanvas` with `putImageData`; the
+  canvas is a display surface only (no `ctx.filter`, which iOS Safari ignores). While a
+  render is pending the stage gets `is-rendering` and the size badge shows a pulsing dot.
+* **Save/Download** runs the same fit at `'full'` quality in the worker, encodes PNG
+  with a canvas (`toBlob('image/png')`), and downloads `fitted-image-<W>x<H>.png`.
+  Busy state on the Save button while rendering; no preview-canvas fallback (a failed
+  engine shows a toast and `state.engine = 'failed'`).
+* Debug hook for tests: `window.__imageFitter = { state, engine: EngineClient,
+  engineVersion, lastResult?: Bitmap, loadBitmap(b: Bitmap): void,
+  render(): Promise<Bitmap>, whenIdle(): Promise<void> }` (typed in `src/ui/debug.ts`);
+  it is installed once the engine is ready, so `state.engine` starts as `'ready'`.
+  `whenIdle()` resolves once the preview frame for the current options is on the canvas.
   `state` is the live store object; besides the fields above it carries `toast`
   (`{ text, kind: 'error' | 'info' } | null`), `dragging`, `color` and `sigma` (the last
   colour / sigma, so switching Color <-> Blur is lossless).

@@ -13,7 +13,15 @@
   </head>
   <body>
     <div id="app">
-      <div class="shell">
+      <!-- Boot screen: shown until the wasm engine is instantiated in its worker -->
+      <div class="boot" id="boot" role="status" aria-live="polite">
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <p class="boot-title">Image Fitter</p>
+        <p class="boot-status" id="bootStatus">Loading image engine…</p>
+        <button type="button" class="chip boot-retry" id="bootRetry" hidden>Retry</button>
+      </div>
+
+      <div class="shell" id="appShell" hidden>
         <!-- Top action bar -->
         <header class="topbar">
           <div class="brand" aria-hidden="true">
@@ -39,7 +47,7 @@
         <!-- Image stage -->
         <main class="stage" id="stage" aria-label="Image preview">
           <canvas id="previewCanvas" class="preview-canvas" hidden></canvas>
-          <span class="size-badge" id="sizeBadge" hidden></span>
+          <span class="size-badge" id="sizeBadge" hidden><span id="sizeText"></span><span class="render-dot" id="renderDot" aria-label="Rendering"></span></span>
 
           <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Drop an image here or tap to open">
             <span class="dropzone-icon" id="dropzoneIcon"></span>

@@ -16,6 +16,12 @@ own minimal WASI preview1 shim plus an in-memory filesystem, and a typed MagickW
 binding layer. The browser decodes the input file and encodes the final PNG; everything
 in between (Lanczos resize, blur, Over composite) happens inside the wasm module.
 
+The engine runs in a Web Worker and is loaded **before** the editor appears (a boot
+screen covers the wait). The live preview is not a Canvas 2D approximation: every
+option change asks the worker for a reduced-size MagickWand render of the exact same
+pipeline, and Save renders it at full resolution. The preview canvas only displays
+frames, which is also why the blur works on iOS Safari (it ignores `ctx.filter`).
+
 ## Running it
 
 ```bash
@@ -49,7 +55,8 @@ npm run test:browser  # headless-Chrome end-to-end test, 250 checks
   and swap, all six alignment chips, D-pad nudges including hold-to-repeat, keyboard
   nudges, colour and blur backgrounds, a real BMP uploaded through the file input, and
   Save. After each interaction it runs the wasm fit and asserts the output dimensions
-  and pixels, compares the wasm result against the Canvas-2D preview on a sampling grid,
+  and pixels, compares the full-resolution wasm result against the engine's preview
+  frame on a sampling grid, checks that the preview canvas really shows the blur,
   verifies the downloaded PNG's signature and IHDR size, and fails on any console error.
   Screenshots are written to `tests/out/browser-*.png`.
 
@@ -72,7 +79,9 @@ flags, the patches and why each one exists.
 ```
 index.html           app shell
 src/main.ts          boots the UI
-src/ui/              store, stage/canvas preview, option panels, app wiring, debug hook
+src/ui/              boot screen, store, stage (frame blitting), option panels, app wiring, debug hook
+src/engine/worker.ts the engine worker (owns the wasm instance and the source pixels)
+src/engine/client.ts main-thread handle on the worker (setSource / fit preview|full)
 src/engine/types.ts  Bitmap/FitOptions types + the pure placement math (computePlacement)
 src/engine/fitter.ts the fit pipeline on MagickWand
 src/wasm/            WASI shim, MagickWand bindings, enums, and the committed magick.wasm

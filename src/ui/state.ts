@@ -8,18 +8,16 @@ export type Tool = 'ratio' | 'size' | 'position' | 'background'
 
 export const TOOLS: readonly Tool[] = ['ratio', 'size', 'position', 'background']
 
-export type EngineStatus = 'loading' | 'ready' | 'failed'
+/** The UI is only started once the wasm engine is ready, so this is 'ready' from the
+ *  first render and only flips to 'failed' if the engine worker dies later. */
+export type EngineStatus = 'ready' | 'failed'
 
 export interface SourceImage {
-  /** Intrinsic size of the loaded image. */
+  /** Intrinsic size of the loaded image (the pixels themselves live in the engine worker). */
   width: number
   height: number
   /** File name (or a synthetic one for bitmaps loaded through the debug hook). */
   name: string
-  /** Decoded image for the Canvas 2D preview; null until decoded (debug loads). */
-  preview: ImageBitmap | null
-  /** Raw RGBA copy for the wasm fitter; converted lazily on Save / render(). */
-  raw: Bitmap | null
 }
 
 export interface AppState {
@@ -31,6 +29,10 @@ export interface AppState {
   /** Last chosen blur sigma — survives switching to Color and back. */
   sigma: number
   tool: Tool
+  /** Latest preview frame rendered by the engine (capped size), shown on the stage. */
+  preview: Bitmap | null
+  /** A preview render is in flight or queued. */
+  rendering: boolean
   /** Save in progress. */
   busy: boolean
   engine: EngineStatus
@@ -65,8 +67,10 @@ export function createInitialState(): AppState {
     color: DEFAULT_COLOR,
     sigma: BLUR_RANGE.default,
     tool: 'ratio',
+    preview: null,
+    rendering: false,
     busy: false,
-    engine: 'loading',
+    engine: 'ready',
     dragging: false,
     toast: null,
   }

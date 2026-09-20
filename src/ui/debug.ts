@@ -1,17 +1,24 @@
-// window.__imageFitter debug hook, always installed by app.ts on boot. Tests drive the
-// app through this object rather than simulating real file uploads / wasm loads.
+// window.__imageFitter debug hook, installed by app.ts once the engine has booted. Tests
+// drive the app through this object rather than simulating real file uploads.
 import type { Bitmap } from '../engine/types'
-import type { Fitter } from '../engine/fitter'
+import type { EngineClient } from '../engine/client'
 import type { AppState } from './state'
 
 export interface ImageFitterDebug {
   readonly state: AppState
-  readonly fitter: Promise<Fitter> | undefined
+  /** The engine worker handle (already booted). */
+  readonly engine: EngineClient
+  /** Engine version string reported by the worker on boot. */
+  readonly engineVersion: string
   lastResult?: Bitmap
   /** Loads a raw RGBA bitmap as if a file had been opened through the file input. */
   loadBitmap(bitmap: Bitmap): void
-  /** Runs the wasm fit with the current options and stores the result in `lastResult`. */
+  /** Runs the full-resolution wasm fit with the current options and stores the result
+   *  in `lastResult`. */
   render(): Promise<Bitmap>
+  /** Resolves once no preview render is in flight or queued and the canvas shows the
+   *  frame for the current options. */
+  whenIdle(): Promise<void>
 }
 
 declare global {
