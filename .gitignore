@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Native wasm build (wasm/build.sh regenerates all of this).
+# NOTE: src/wasm/magick.wasm IS committed on purpose - see ARCHITECTURE.md.
+wasm/ImageMagick/
+wasm/out/
+wasm/*.tar.gz
+
+# Generated test output
+tests/out/

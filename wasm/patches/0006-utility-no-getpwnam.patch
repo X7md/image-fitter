@@ -1,0 +1,22 @@
+Subject: utility.c: no ~user expansion on wasi (no passwd database)
+
+ExpandFilename() expands a leading "~user/" through getpwnam()/struct passwd.
+wasi-libc has no <pwd.h> (patch 0001 stops studio.h from including it), so the
+block does not compile.  WASI's capability model has no home directories at
+all, so the correct behaviour is simply to leave "~user/..." untouched -- which
+is what the function already does when the block is compiled out.
+
+Plain "~/" (no user name) is handled by the other branch of the if and is
+unaffected.
+
+--- a/MagickCore/utility.c
++++ b/MagickCore/utility.c
+@@ -657,7 +657,7 @@
+     }
+   else
+     {
+-#if defined(MAGICKCORE_POSIX_SUPPORT) && !defined(__OS2__)
++#if defined(MAGICKCORE_POSIX_SUPPORT) && !defined(__OS2__) && !defined(__wasi__)
+       char
+ #if defined(MAGICKCORE_HAVE_GETPWNAM_R)
+         buffer[MagickPathExtent],

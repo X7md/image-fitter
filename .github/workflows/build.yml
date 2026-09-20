@@ -26,15 +26,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    # Vite 7 requires Node >= 20.19; the Node tests use the built-in test runner via tsx.
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
+    # Type-checks the app AND the tests (tsconfig.test.json).
+    - name: Type check
+      run: npm run typecheck
+
+    # Loads the committed src/wasm/magick.wasm through our own WASI shim and asserts
+    # pixels of real fits. No native toolchain needed - the artifact is in the repo.
+    - name: Test (Node bitmap tests)
+      run: npm test
+
     - name: Build project
       run: npm run build
       

@@ -1,0 +1,64 @@
+# Symbols forced into the wasm export table (ARCHITECTURE.md section 1).
+# One C symbol per line; '#' comments and blank lines ignored.
+# build.sh turns each line into -Wl,--export=<sym>.
+# `memory` and `_initialize` are exported by the reactor link model itself and
+# are therefore NOT listed here.
+
+# --- Lifecycle / errors ---
+MagickWandGenesis
+MagickWandTerminus
+IsMagickWandInstantiated
+NewMagickWand
+DestroyMagickWand
+CloneMagickWand
+ClearMagickWand
+IsMagickWand
+MagickGetException
+MagickGetExceptionType
+MagickClearException
+MagickRelinquishMemory
+MagickGetVersion
+MagickQueryFormats
+MagickSetResourceLimit
+MagickGetResourceLimit
+
+# --- Pixel wand ---
+NewPixelWand
+DestroyPixelWand
+PixelSetColor
+PixelSetAlpha
+PixelSetRed
+PixelSetGreen
+PixelSetBlue
+
+# --- Image creation / pixel I/O ---
+MagickNewImage
+MagickConstituteImage
+MagickImportImagePixels
+MagickExportImagePixels
+MagickReadImageBlob
+MagickGetImageBlob
+MagickSetImageFormat
+MagickGetImageFormat
+MagickGetImageWidth
+MagickGetImageHeight
+MagickSetImageDepth
+MagickGetImageDepth
+MagickSetImageAlphaChannel
+MagickSetImageBackgroundColor
+MagickGetNumberImages
+MagickResetIterator
+
+# --- Operations ---
+MagickResizeImage
+MagickScaleImage
+MagickBlurImage
+MagickGaussianBlurImage
+MagickCompositeImage
+MagickExtentImage
+MagickSetImageGravity
+MagickCropImage
+
+# --- Memory ---
+malloc
+free

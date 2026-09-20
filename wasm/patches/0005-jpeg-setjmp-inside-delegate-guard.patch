@@ -1,0 +1,24 @@
+Subject: coders/jpeg.c: only include <setjmp.h> when the JPEG delegate is built
+
+wasm32 clang errors out on <setjmp.h> unless -mllvm -wasm-enable-sjlj is given
+(the Exception-handling proposal).  coders/jpeg.c includes it one line ABOVE
+the `#if defined(MAGICKCORE_JPEG_DELEGATE)` guard, so the file cannot compile
+even in its delegate-free form (which is just RegisterJPEGImage /
+UnregisterJPEGImage).  Move the include inside the guard.
+
+We keep the delegate-free jpeg.c so "JPEG" still shows up in
+MagickQueryFormats() and produces a proper "no decode delegate" exception
+rather than "no such format".
+
+--- a/coders/jpeg.c
++++ b/coders/jpeg.c
+@@ -88,8 +88,8 @@
+ #include "MagickCore/xml-tree.h"
+ #include "MagickCore/xml-tree-private.h"
+ #include "coders/coders-private.h"
+-#include <setjmp.h>
+ #if defined(MAGICKCORE_JPEG_DELEGATE)
++#include <setjmp.h>
+ #define JPEG_INTERNAL_OPTIONS
+ #if defined(__MINGW32__)
+ # define XMD_H 1  /* Avoid conflicting typedef for INT32 */

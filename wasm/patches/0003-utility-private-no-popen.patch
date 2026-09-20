@@ -1,0 +1,28 @@
+Subject: utility-private.h: popen_utf8() returns NULL on wasi
+
+wasi-libc has no popen().  popen_utf8() is a `static inline` in a header that
+every coder pulls in, so even though MAGICKCORE_HAVE_POPEN is undefined and no
+caller is compiled, the body still has to typecheck -- and it doesn't (implicit
+`int popen()` returned as `FILE *`).
+
+Returning NULL is the graceful failure the callers already handle: blob.c turns
+it into "UnableToOpenBlob" and delegate.c falls back to system(), which patch
+0004 stubs out to -1.
+
+--- a/MagickCore/utility-private.h
++++ b/MagickCore/utility-private.h
+@@ -154,8 +154,13 @@
+ static inline FILE *popen_utf8(const char *command,const char *type)
+ {
+-#if !defined(MAGICKCORE_WINDOWS_SUPPORT) || defined(__CYGWIN__)
++#if defined(__wasi__)
++  /* No processes under WASI: fail the way a refused pipe would. */
++  (void) command;
++  (void) type;
++  return((FILE *) NULL);
++#elif !defined(MAGICKCORE_WINDOWS_SUPPORT) || defined(__CYGWIN__)
+   return(popen(command,type));
+ #else
+   return(NTOpenPipeWide(command,type));
+ #endif
+ }

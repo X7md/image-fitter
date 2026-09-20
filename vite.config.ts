@@ -6,8 +6,5 @@ export default defineConfig({
       allow: ['..'],
     },
   },
-  optimizeDeps: {
-    exclude: ['@imagemagick/magick-wasm'],
-  },
   assetsInclude: ['**/*.wasm'],
 })

@@ -1,0 +1,21 @@
+Subject: delegate.c: stub system() on wasi, like Android/iOS already do
+
+ImageMagick already ships a "this platform cannot run external programs" path
+for iOS and Android:  #define system(s) ((s)==NULL ? 0 : -1).  wasm32-wasip1 is
+in exactly that position, so reuse it instead of inventing a new one.  With
+MAGICKCORE_HAVE_POPEN / _EXECVP / _FORK undefined (see
+wasm/config/MagickCore/magick-baseconfig.h) the whole of
+ExternalDelegateCommand() collapses to this stub, which returns -1 and makes
+InvokeDelegate() raise a normal DelegateError exception.
+
+--- a/MagickCore/delegate.c
++++ b/MagickCore/delegate.c
+@@ -87,7 +87,7 @@
+   #if TARGET_OS_IOS || TARGET_OS_WATCH || TARGET_OS_TV
+     #define system(s) ((s)==NULL ? 0 : -1)
+   #endif // end iOS
+-#elif defined(__ANDROID__)
++#elif defined(__ANDROID__) || defined(__wasi__)
+   #define system(s) ((s)==NULL ? 0 : -1)
+ #endif
+ #define DelegateFilename  "delegates.xml"

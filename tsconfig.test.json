@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /* The tests run under Node (tsx), so they need the node typings on top of the DOM
+       ones the app uses — tests/browser/run.ts touches both sides. */
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src", "tests"]
+}

@@ -1,0 +1,20 @@
+Subject: studio.h: don't include <sys/wait.h>/<pwd.h> on wasi
+
+MAGICKCORE_POSIX_SUPPORT is on for wasm32-wasi, but wasi-libc ships neither
+sys/wait.h (no processes) nor pwd.h (no user database).  Both includes are
+unconditional inside the POSIX branch, so every single translation unit fails
+at studio.h before anything else can be evaluated.
+
+--- a/MagickCore/studio.h
++++ b/MagickCore/studio.h
+@@ -196,8 +196,10 @@
+ #   include <dirent.h>
+ #   define NAMLEN(dirent) strlen((dirent)->d_name)
+ #  endif
++#  if !defined(__wasi__)
+ #  include <sys/wait.h>
+ #  include <pwd.h>
++#  endif
+ # endif
+ # if !defined(S_ISDIR)
+ #  define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)

@@ -1,0 +1,17 @@
+Subject: MagickWand/studio.h: don't include <sys/wait.h>/<pwd.h> on wasi
+
+Same problem and same fix as 0001, in MagickWand's private copy of studio.h.
+
+--- a/MagickWand/studio.h
++++ b/MagickWand/studio.h
+@@ -180,8 +180,10 @@
+ #   include <dirent.h>
+ #   define NAMLEN(dirent) strlen((dirent)->d_name)
+ #  endif
++#  if !defined(__wasi__)
+ #  include <sys/wait.h>
+ #  include <pwd.h>
++#  endif
+ # endif
+ # if !defined(S_ISDIR)
+ #  define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
