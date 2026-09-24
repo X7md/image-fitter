@@ -46,8 +46,8 @@ and `config/MagickCore/version.h` and leaves the hand-authored overrides alone.
 | Target | `wasm32-wasip1`, reactor (`-mexec-model=reactor`) |
 | Source | ImageMagick 7.1.2-31 (GitHub release tarball) |
 | Translation units | 264 (95 MagickCore + 23 MagickWand + 146 coders) |
-| Artifact | `src/wasm/magick.wasm`, **2 508 648 bytes** (debug-stripped) |
-| Exports | 51 (49 from `exports.txt` + `memory` + `_initialize`) |
+| Artifact | `src/wasm/magick.wasm`, **2 511 086 bytes** (debug-stripped) |
+| Exports | 54 (52 from `exports.txt` + `memory` + `_initialize`) |
 | Imports | `wasi_snapshot_preview1` only — asserted by `build.sh` on every link |
 
 ### Compile flags

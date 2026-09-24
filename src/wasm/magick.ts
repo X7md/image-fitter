@@ -123,6 +123,14 @@ export interface MagickExports {
   MagickGetNumberImages(wand: number): number
   MagickResetIterator(wand: number): void
 
+  /* image lists */
+  /** Clones every image of `add` into `wand`, after the current image. */
+  MagickAddImage(wand: number, add: number): number
+  /** Returns a NEW wand (or 0) holding the images from the current one onwards appended
+   *  into one; `stack` 1 = top-to-bottom, 0 = left-to-right. */
+  MagickAppendImages(wand: number, stack: number): number
+  MagickSetLastIterator(wand: number): void
+
   /* operations */
   MagickResizeImage(wand: number, columns: number, rows: number, filter: number): number
   MagickScaleImage(wand: number, columns: number, rows: number): number
@@ -691,6 +699,24 @@ export class MagickWand {
 
   resetIterator(): void {
     this.magick.exports.MagickResetIterator(this.alive())
+  }
+
+  /** Append clones of `other`'s images to the END of this wand's list. */
+  addImages(other: MagickWand): void {
+    this.magick.exports.MagickSetLastIterator(this.alive())
+    this.check(this.magick.exports.MagickAddImage(this.ptr, other.alive()), 'MagickAddImage')
+  }
+
+  /**
+   * Append the whole image list into one image, left-to-right or top-to-bottom
+   * (`vertical`). Each image is placed on the cross axis by its own gravity; gaps take the
+   * first image's background colour. Returns a new wand; this one is left unchanged.
+   */
+  append(vertical: boolean): MagickWand {
+    this.magick.exports.MagickResetIterator(this.alive())
+    const ptr = this.magick.exports.MagickAppendImages(this.ptr, vertical ? 1 : 0)
+    if (ptr === 0) this.magick.throwException(this.ptr, `MagickAppendImages(vertical=${vertical})`)
+    return new MagickWand(this.magick, ptr)
   }
 
   clone(): MagickWand {

@@ -96,6 +96,10 @@ MagickReadImageBlob  MagickGetImageBlob  MagickSetImageFormat  MagickGetImageFor
 MagickGetImageWidth  MagickGetImageHeight  MagickSetImageDepth  MagickGetImageDepth
 MagickSetImageAlphaChannel  MagickSetImageBackgroundColor  MagickGetNumberImages  MagickResetIterator
 ```
+Image lists (stacking, section 9)
+```
+MagickAddImage  MagickAppendImages  MagickSetLastIterator
+```
 Operations
 ```
 MagickResizeImage  MagickScaleImage  MagickBlurImage  MagickGaussianBlurImage
@@ -109,7 +113,7 @@ If a listed symbol doesn't exist in IM 7.1.2 exactly as named, export the closes
 equivalent and document it in `wasm/README.md` and `src/wasm/exports.txt`.
 
 **As built**: every symbol above exists verbatim in 7.1.2 — no substitutions. The
-artifact is 2 508 648 bytes with 51 exports (the 49 above plus `memory` and
+artifact is 2 511 086 bytes with 54 exports (the 52 above plus `memory` and
 `_initialize`). Two link flags beyond the list are load-bearing: `-Wl,--stack-first`
 (so a shadow-stack overflow traps instead of corrupting data) and
 `-Wl,-z,stack-size=1048576` — the default 64 KiB shadow stack is **not** enough:
@@ -283,9 +287,11 @@ export async function createFitter(source: Parameters<typeof loadMagick>[0], opt
   calls `startApp(engine, version)`. If the engine fails to load the boot screen shows
   the error and a Retry button; the editor is never shown without an engine.
 * **Engine in a worker.** `src/engine/client.ts` (`EngineClient`) talks to the worker
-  over the protocol in `src/engine/protocol.ts`: `setSource(bitmap)` transfers the
-  decoded RGBA pixels once (the worker also keeps a Lanczos-downscaled copy capped at
-  `PREVIEW_LONG_SIDE` = 1280 px); `fit(options, 'preview' | 'full')` renders. Requests
+  over the protocol in `src/engine/protocol.ts`: `addImage(key, bitmap)` transfers the
+  decoded RGBA pixels of one image once (the worker also keeps a Lanczos-downscaled copy
+  capped at `PREVIEW_LONG_SIDE` = 1280 px); `removeImage(key)` / `clearImages()` drop
+  them; `render({ images, stack, fit }, 'preview' | 'full')` stacks `images` when
+  `stack` is set (section 9), otherwise takes `images[0]`, and fits the result. Requests
   are processed in order; a wasm trap reloads the module inside the worker and retries once.
 * **Live preview is rendered by MagickWand**, not by Canvas 2D: every change to the
   options schedules a `'preview'` fit (latest-wins: one in flight, the newest options
@@ -388,3 +394,36 @@ a 4:3 source, a target wider than 4:3 leaves horizontal bands (so Left/Center/Ri
 observable and Top/Middle/Bottom is a no-op) and a taller target does the reverse. The
 browser test therefore switches the target size between the horizontal and the vertical
 alignment steps.
+
+## 9. Fit and Stack modes — IMPLEMENTED
+
+* **Intro**: when no image is open the stage shows two cards, `#fitCard` (one image,
+  `#fileInput`) and `#stackCard` (several, `#stackInput multiple`). Dropping on a card
+  opens that mode. A drop elsewhere on the intro picks Fit for one file and Stack for
+  more. In the editor a drop or paste replaces the image (Fit) or adds images (Stack).
+  `#homeBtn` returns to the intro and clears the engine's images.
+* **State** (`src/ui/state.ts`): `mode: 'fit' | 'stack' | null`, `images: LoadedImage[]`
+  (engine key, size, name, thumbnail), `stack: StackOptions`, and `source`, which is
+  now *derived*: the image in Fit, or the `planStack` size in Stack. The fit tools always
+  work on `source`. `sizeFollowsSource` keeps the target on the source size (or on the
+  ratio preset of it) while the stack changes; typing a size or swapping turns it off,
+  and picking a preset or Reset turns it back on.
+* **Tools**: Fit shows Ratio / Size / Position / Background. Stack adds **Images**
+  (thumbnails with move earlier/later and remove, plus an Add tile), **Layout**
+  (Row / Column / Grid chips, a Columns field for grid, a Gap slider 0..200 and a gap
+  colour) and **Sizing** (Match: Off / Smallest / Largest / First; Align: Start / Center /
+  End, labelled Top/Middle/Bottom for rows and grids and Left/Center/Right for columns).
+* **Math** (`planStack` in `types.ts`, pure): rows and grid rows match *heights*,
+  columns match *widths*, scaled to the smallest, largest or first image (rounded).
+  Grid = rows of `columns` images joined top to bottom. Cross-axis alignment uses
+  `floor(slack / 2)` for center, which is exactly how `AppendImages` places images, so
+  the plan's `cells` are pixel exact. `scale` shrinks a plan for previews.
+* **Engine** (`Fitter.stack` / `stackAndFit`): each image is constituted, resized to its
+  planned size and given a gravity (North/Center/South in rows, West/Center/East in
+  columns). Gaps are spacer images (`gap×1` or `1×gap`) in the background colour. Each
+  line is built with `MagickSetLastIterator` + `MagickAddImage`, then joined with
+  `MagickResetIterator` + `MagickAppendImages`. Grid lines are joined again the same way
+  along the other axis. The first image's background colour fills the alignment slack.
+* **Preview**: the worker caches the preview-scale composite, keyed by image keys and
+  stack options. Changes to the fit options alone reuse it. Save runs `stackAndFit` at
+  full size and downloads `stacked-image-<W>x<H>.png`.

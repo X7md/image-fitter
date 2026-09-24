@@ -95,9 +95,105 @@ function backgroundPanel(state: AppState): string {
   `
 }
 
+function escapeAttr(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+}
+
+function imagesPanel(state: AppState): string {
+  const last = state.images.length - 1
+  const thumbs = state.images
+    .map(
+      (img, i) => `
+      <div class="thumb" data-key="${img.key}">
+        <img src="${img.thumb}" alt="${escapeAttr(img.name)}" draggable="false">
+        <span class="thumb-index">${i + 1}</span>
+        <div class="thumb-actions">
+          <button type="button" data-move="-1" data-key="${img.key}" aria-label="Move ${escapeAttr(img.name)} earlier" ${i === 0 ? 'disabled' : ''}>${icons.left}</button>
+          <button type="button" data-remove data-key="${img.key}" aria-label="Remove ${escapeAttr(img.name)}">${icons.close}</button>
+          <button type="button" data-move="1" data-key="${img.key}" aria-label="Move ${escapeAttr(img.name)} later" ${i === last ? 'disabled' : ''}>${icons.right}</button>
+        </div>
+      </div>`,
+    )
+    .join('')
+  return `
+    <div class="thumb-strip" role="list" aria-label="Stacked images">
+      ${thumbs}
+      <button type="button" class="thumb thumb-add" id="addImagesBtn" aria-label="Add images">${icons.plus}<span>Add</span></button>
+    </div>
+  `
+}
+
+const LAYOUT_CHIPS = [
+  ['horizontal', 'Row', icons.row],
+  ['vertical', 'Column', icons.column],
+  ['grid', 'Grid', icons.layout],
+] as const
+
+function layoutPanel(state: AppState): string {
+  const { stack } = state
+  const chips = LAYOUT_CHIPS.map(
+    ([value, label, icon]) =>
+      `<button type="button" class="chip" data-layout="${value}" aria-pressed="${stack.layout === value}">${icon}${label}</button>`,
+  ).join('')
+  return `
+    <div class="option-row">
+      <div class="chip-group" role="group" aria-label="Stack layout">${chips}</div>
+      <div class="field field-inline" id="columnsRow" ${stack.layout === 'grid' ? '' : 'hidden'}>
+        <label for="columnsInput">Columns</label>
+        <input type="number" id="columnsInput" inputmode="numeric" min="1" max="${Math.max(1, state.images.length)}" value="${stack.columns}">
+      </div>
+    </div>
+    <div class="option-row">
+      <span class="option-label">Gap</span>
+      <div class="range-row">
+        <input type="range" id="gapRange" min="0" max="200" step="1" value="${stack.gap}" aria-label="Gap between images">
+        <span class="range-value" id="gapValue">${stack.gap}</span>
+      </div>
+      <input type="color" class="color-swatch-input" id="stackColorInput" aria-label="Gap color" value="${stack.background}">
+    </div>
+  `
+}
+
+const MATCH_LABELS: Record<string, string> = { none: 'Off', smallest: 'Smallest', largest: 'Largest', first: 'First' }
+
+/** Alignment chips read in the axis they act on: rows align vertically, columns horizontally. */
+function alignLabels(state: AppState): Record<string, string> {
+  return state.stack.layout === 'vertical'
+    ? { start: 'Left', center: 'Center', end: 'Right' }
+    : { start: 'Top', center: 'Middle', end: 'Bottom' }
+}
+
+function sizingPanel(state: AppState): string {
+  const { stack } = state
+  const matches = Object.entries(MATCH_LABELS)
+    .map(([value, label]) => chip(stack.match === value, 'match', value, label))
+    .join('')
+  const labels = alignLabels(state)
+  const aligns = (['start', 'center', 'end'] as const)
+    .map((a) => chip(stack.align === a, 'stack-align', a, labels[a]!))
+    .join('')
+  const matchWhat = stack.layout === 'vertical' ? 'widths' : 'heights'
+  return `
+    <div class="option-row">
+      <span class="option-label">Match ${matchWhat}</span>
+      <div class="chip-group" role="group" aria-label="Match ${matchWhat}">${matches}</div>
+    </div>
+    <div class="option-row">
+      <span class="option-label">Align</span>
+      <div class="chip-group" role="group" aria-label="Align images">${aligns}</div>
+    </div>
+  `
+}
+
 export function renderPanel(state: AppState): string {
   if (!state.source) return ''
   switch (state.tool) {
+    case 'images':
+      return imagesPanel(state)
+    case 'layout':
+      return layoutPanel(state)
+    case 'sizing':
+      return sizingPanel(state)
     case 'ratio':
       return ratioPanel(state)
     case 'size':

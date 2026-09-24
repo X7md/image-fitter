@@ -1,15 +1,24 @@
 // Message protocol between the main thread (EngineClient) and the engine worker.
-import type { Bitmap, FitOptions } from './types'
+import type { Bitmap, FitOptions, StackOptions } from './types'
 
 /** Preview renders are capped to this many pixels on the long side of the target. */
 export const PREVIEW_LONG_SIDE = 1280
 
 export type Quality = 'preview' | 'full'
 
+/** What to render: `images` (keys handed over with `addImage`), stacked with `stack`
+ *  when set (otherwise `images[0]` alone), then fitted with `fit`. */
+export interface RenderJob {
+  images: number[]
+  stack: StackOptions | null
+  fit: FitOptions
+}
+
 export type EngineRequest =
-  | { type: 'setSource'; id: number; bitmap: Bitmap }
-  | { type: 'clearSource'; id: number }
-  | { type: 'fit'; id: number; options: FitOptions; quality: Quality }
+  | { type: 'addImage'; id: number; key: number; bitmap: Bitmap }
+  | { type: 'removeImage'; id: number; key: number }
+  | { type: 'clearImages'; id: number }
+  | { type: 'render'; id: number; job: RenderJob; quality: Quality }
 
 export type EngineResponse =
   | { type: 'ready'; version: string }

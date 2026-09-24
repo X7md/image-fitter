@@ -45,6 +45,23 @@ export function drawBitmap(canvas: HTMLCanvasElement, bitmap: Bitmap): void {
   ctx.putImageData(toImageData(bitmap), 0, 0)
 }
 
+/** A small PNG data: URL of `bitmap` (long side `max`), for the Images panel. */
+export function bitmapThumbnail(bitmap: Bitmap, max = 112): string {
+  const full = document.createElement('canvas')
+  full.width = bitmap.width
+  full.height = bitmap.height
+  full.getContext('2d')?.putImageData(toImageData(bitmap), 0, 0)
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+  const thumb = document.createElement('canvas')
+  thumb.width = Math.max(1, Math.round(bitmap.width * scale))
+  thumb.height = Math.max(1, Math.round(bitmap.height * scale))
+  const ctx = thumb.getContext('2d')
+  if (!ctx) return ''
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(full, 0, 0, thumb.width, thumb.height)
+  return thumb.toDataURL('image/png')
+}
+
 /** Encode a bitmap as PNG with the browser's encoder (for the download). */
 export function bitmapToPngBlob(bitmap: Bitmap): Promise<Blob> {
   const canvas = document.createElement('canvas')

@@ -6,6 +6,8 @@ DestroyPixelWand
 free
 IsMagickWand
 IsMagickWandInstantiated
+MagickAddImage
+MagickAppendImages
 MagickBlurImage
 MagickClearException
 MagickCompositeImage
@@ -37,6 +39,7 @@ MagickSetImageBackgroundColor
 MagickSetImageDepth
 MagickSetImageFormat
 MagickSetImageGravity
+MagickSetLastIterator
 MagickSetResourceLimit
 MagickWandGenesis
 MagickWandTerminus

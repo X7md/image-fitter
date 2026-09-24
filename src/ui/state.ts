@@ -1,27 +1,55 @@
 // Single reactive state object for the whole UI. Mutations go through `store.update()`;
 // every subscribed render() runs synchronously afterwards so the DOM is always in sync
 // with the state by the time an event handler returns (tests rely on that).
-import type { AspectPreset, Bitmap, FitOptions } from '../engine/types'
-import { BLUR_RANGE, DEFAULT_OPTIONS, FALLBACK_SIZE } from '../engine/types'
+import type { AspectPreset, Bitmap, FitOptions, StackOptions } from '../engine/types'
+import { BLUR_RANGE, DEFAULT_OPTIONS, DEFAULT_STACK, FALLBACK_SIZE } from '../engine/types'
 
-export type Tool = 'ratio' | 'size' | 'position' | 'background'
+/** Fit: one image onto a canvas. Stack: several images joined, then fitted. */
+export type Mode = 'fit' | 'stack'
 
-export const TOOLS: readonly Tool[] = ['ratio', 'size', 'position', 'background']
+export type Tool = 'images' | 'layout' | 'sizing' | 'ratio' | 'size' | 'position' | 'background'
+
+export const FIT_TOOLS: readonly Tool[] = ['ratio', 'size', 'position', 'background']
+export const STACK_TOOLS: readonly Tool[] = ['images', 'layout', 'sizing', ...FIT_TOOLS]
+export const TOOLS: readonly Tool[] = STACK_TOOLS
+
+export function toolsFor(mode: Mode | null): readonly Tool[] {
+  return mode === 'stack' ? STACK_TOOLS : FIT_TOOLS
+}
 
 /** The UI is only started once the wasm engine is ready, so this is 'ready' from the
  *  first render and only flips to 'failed' if the engine worker dies later. */
 export type EngineStatus = 'ready' | 'failed'
 
-export interface SourceImage {
-  /** Intrinsic size of the loaded image (the pixels themselves live in the engine worker). */
+export interface LoadedImage {
+  /** Engine key (see EngineClient.addImage); never reused. */
+  key: number
+  /** Intrinsic size (the pixels themselves live in the engine worker). */
   width: number
   height: number
   /** File name (or a synthetic one for bitmaps loaded through the debug hook). */
   name: string
+  /** Small data: URL for the Images panel. */
+  thumb: string
+}
+
+/** What the fit tools work on: the single image, or the stacked result. */
+export interface SourceImage {
+  width: number
+  height: number
+  name: string
 }
 
 export interface AppState {
+  /** null = intro screen. */
+  mode: Mode | null
+  /** In order. Exactly one in fit mode. */
+  images: LoadedImage[]
+  stack: StackOptions
   source: SourceImage | null
+  /** The fit target tracks the source size (or the ratio preset of it) until the user
+   *  types a size, so restacking keeps the output matching the stack. */
+  sizeFollowsSource: boolean
   preset: AspectPreset
   options: FitOptions
   /** Last chosen colour — survives switching to Blur and back. */
@@ -61,7 +89,11 @@ const DEFAULT_COLOR = DEFAULT_OPTIONS.background.mode === 'color' ? DEFAULT_OPTI
 
 export function createInitialState(): AppState {
   return {
+    mode: null,
+    images: [],
+    stack: { ...DEFAULT_STACK },
     source: null,
+    sizeFollowsSource: true,
     preset: 'custom',
     options: initialOptions(),
     color: DEFAULT_COLOR,

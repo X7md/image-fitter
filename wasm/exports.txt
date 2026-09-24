@@ -49,6 +49,11 @@ MagickSetImageBackgroundColor
 MagickGetNumberImages
 MagickResetIterator
 
+# --- Image lists (stacking) ---
+MagickAddImage
+MagickAppendImages
+MagickSetLastIterator
+
 # --- Operations ---
 MagickResizeImage
 MagickScaleImage

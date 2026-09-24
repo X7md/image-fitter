@@ -24,9 +24,13 @@
       <div class="shell" id="appShell" hidden>
         <!-- Top action bar -->
         <header class="topbar">
-          <div class="brand" aria-hidden="true">
-            <span class="brand-mark" id="brandMark"></span>
+          <div class="brand">
+            <button type="button" class="icon-btn" id="homeBtn" aria-label="Back to start" title="Back to start" hidden>
+              <span id="homeIcon"></span>
+            </button>
+            <span class="brand-mark" id="brandMark" aria-hidden="true"></span>
             <span class="brand-name">Image Fitter</span>
+            <span class="mode-pill" id="modePill" hidden></span>
           </div>
           <div class="topbar-actions">
             <button type="button" class="icon-btn" id="openBtn" aria-label="Open image" title="Open">
@@ -49,18 +53,30 @@
           <canvas id="previewCanvas" class="preview-canvas" hidden></canvas>
           <span class="size-badge" id="sizeBadge" hidden><span id="sizeText"></span><span class="render-dot" id="renderDot" aria-label="Rendering"></span></span>
 
-          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Drop an image here or tap to open">
-            <span class="dropzone-icon" id="dropzoneIcon"></span>
-            <p class="dropzone-title">Drop an image here or tap to open</p>
-            <p class="dropzone-subtitle">JPG, PNG, WebP, GIF</p>
+          <!-- Intro: pick a mode. Each card opens a picker or takes a drop. -->
+          <div class="intro" id="intro">
+            <button type="button" class="intro-card" id="fitCard" data-mode="fit">
+              <span class="intro-card-icon" id="fitCardIcon"></span>
+              <span class="intro-card-title">Fit</span>
+              <span class="intro-card-text">Place one image on a canvas of any size or ratio</span>
+              <span class="intro-card-cta">Choose an image</span>
+            </button>
+            <button type="button" class="intro-card" id="stackCard" data-mode="stack">
+              <span class="intro-card-icon" id="stackCardIcon"></span>
+              <span class="intro-card-title">Stack</span>
+              <span class="intro-card-text">Join 2+ images in a row, column or grid</span>
+              <span class="intro-card-cta">Choose images</span>
+            </button>
+            <p class="intro-hint">Drop files on a card, or paste an image. JPG, PNG, WebP, GIF</p>
           </div>
 
           <div class="stage-drag-overlay" id="dragOverlay" hidden>
             <span id="dragOverlayIcon"></span>
-            <p>Release to drop</p>
+            <p id="dragOverlayText">Release to drop</p>
           </div>
 
           <input type="file" id="fileInput" accept="image/*" hidden />
+          <input type="file" id="stackInput" accept="image/*" multiple hidden />
         </main>
 
         <!-- Contextual option panel for the active tool -->
@@ -68,6 +84,18 @@
 
         <!-- Bottom tool strip -->
         <nav class="tool-strip" id="toolStrip" aria-label="Tools">
+          <button type="button" class="tool-tab" id="toolTab-images" data-tool="images" aria-pressed="false" hidden>
+            <span class="tool-tab-icon" id="toolIcon-images"></span>
+            <span class="tool-tab-label">Images</span>
+          </button>
+          <button type="button" class="tool-tab" id="toolTab-layout" data-tool="layout" aria-pressed="false" hidden>
+            <span class="tool-tab-icon" id="toolIcon-layout"></span>
+            <span class="tool-tab-label">Layout</span>
+          </button>
+          <button type="button" class="tool-tab" id="toolTab-sizing" data-tool="sizing" aria-pressed="false" hidden>
+            <span class="tool-tab-icon" id="toolIcon-sizing"></span>
+            <span class="tool-tab-label">Sizing</span>
+          </button>
           <button type="button" class="tool-tab" id="toolTab-ratio" data-tool="ratio" aria-pressed="false">
             <span class="tool-tab-icon" id="toolIcon-ratio"></span>
             <span class="tool-tab-label">Ratio</span>

@@ -13,7 +13,9 @@ export interface ImageFitterDebug {
   lastResult?: Bitmap
   /** Loads a raw RGBA bitmap as if a file had been opened through the file input. */
   loadBitmap(bitmap: Bitmap): void
-  /** Runs the full-resolution wasm fit with the current options and stores the result
+  /** Starts a Stack session with these bitmaps, as if picked through the Stack card. */
+  loadBitmaps(bitmaps: Bitmap[]): void
+  /** Runs the full-resolution wasm render (stack + fit) with the current options and stores the result
    *  in `lastResult`. */
   render(): Promise<Bitmap>
   /** Resolves once no preview render is in flight or queued and the canvas shows the

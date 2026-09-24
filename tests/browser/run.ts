@@ -24,8 +24,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import puppeteer from 'puppeteer-core'
 import type { Browser, ElementHandle, Page } from 'puppeteer-core'
 
-import { computePlacement } from '../../src/engine/types'
-import type { Align, AlignY, Bitmap, FitOptions } from '../../src/engine/types'
+import { computePlacement, planStack } from '../../src/engine/types'
+import type { Align, AlignY, Bitmap, FitOptions, StackOptions } from '../../src/engine/types'
 import { OUT_DIR, REPO_ROOT, makeFitter, quadrantBitmap } from '../node/helpers'
 
 const DIST = join(REPO_ROOT, 'dist')
@@ -140,6 +140,9 @@ function startServer(root: string): Promise<{ server: Server; port: number }> {
 /** The subset of `window.__imageFitter` the tests use, as seen from inside the page. */
 interface PageHook {
   state: {
+    mode: 'fit' | 'stack' | null
+    images: Array<{ key: number; width: number; height: number; name: string }>
+    stack: StackOptions
     source: { width: number; height: number; name: string } | null
     preset: string
     options: FitOptions
@@ -151,6 +154,7 @@ interface PageHook {
   lastResult?: Bitmap
   engineVersion: string
   loadBitmap(bitmap: Bitmap): void
+  loadBitmaps(bitmaps: Bitmap[]): void
   render(): Promise<Bitmap>
   whenIdle(): Promise<void>
 }
@@ -395,7 +399,13 @@ async function main(): Promise<void> {
     check(bootUi.bootHidden && !bootUi.shellHidden, 'boot screen is hidden and the editor shell is shown once the engine is ready')
     check(bootUi.version.length > 0, `engine version reported by the worker (${bootUi.version})`)
 
-    check((await page.$('#dropzone')) !== null, 'empty state shows the dropzone')
+    const intro = await page.evaluate(() => ({
+      visible: !(document.getElementById('intro') as HTMLElement).hidden,
+      cards: [...document.querySelectorAll('.intro-card')].map((c) => (c as HTMLElement).dataset.mode),
+      stripHidden: (document.getElementById('toolStrip') as HTMLElement).hidden,
+    }))
+    check(intro.visible && intro.cards.join(',') === 'fit,stack', `intro shows the Fit and Stack cards (got ${intro.cards.join(',')})`)
+    check(intro.stripHidden, 'the tool strip is hidden on the intro')
     check(await page.$eval('#saveBtn', (el) => (el as HTMLButtonElement).disabled), 'Save is disabled with no image')
     await page.screenshot({ path: join(OUT_DIR, 'browser-empty.png') })
 
@@ -807,14 +817,119 @@ async function main(): Promise<void> {
     const stripVisible = await page.evaluate(() => {
       const strip = document.getElementById('toolStrip')
       if (!strip) return false
-      return [...strip.querySelectorAll('[data-tool]')].every((b) => (b as HTMLElement).offsetParent !== null)
+      const shown = [...strip.querySelectorAll<HTMLElement>('[data-tool]')].filter((b) => !b.hidden)
+      return shown.length === 4 && shown.every((b) => b.offsetParent !== null)
     })
-    check(stripVisible, 'all four tool tabs are visible at 390 px')
+    check(stripVisible, 'all four fit tool tabs are visible at 390 px')
     await clickTool(page, 'position')
     await page.screenshot({ path: join(OUT_DIR, 'browser-mobile.png') })
     await assertFit(page, 'mobile viewport render')
 
-    // 14. console cleanliness -------------------------------------------------------
+    // 14. Stack mode -----------------------------------------------------------------
+    step('Stack mode')
+    const STACK_SRC: Array<{ w: number; h: number; c: RGBA }> = [
+      { w: 300, h: 200, c: RED },
+      { w: 100, h: 200, c: GREEN },
+      { w: 150, h: 100, c: BLUE },
+    ]
+    await page.evaluate((specs: Array<{ w: number; h: number; c: RGBA }>) => {
+      const hook = (window as unknown as { __imageFitter?: PageHook }).__imageFitter
+      if (!hook) throw new Error('no hook')
+      hook.loadBitmaps(
+        specs.map(({ w, h, c }) => {
+          const data = new Uint8ClampedArray(w * h * 4)
+          for (let i = 0; i < data.length; i += 4) data.set(c, i)
+          return { width: w, height: h, data }
+        }),
+      )
+    }, STACK_SRC)
+
+    /** Renders and checks: stacked size, and — while the fit is a pass-through — every
+     *  image's colour at the centre of the cell the plan predicts plus gap/slack pixels. */
+    async function assertStack(label: string): Promise<PageHook['state']> {
+      const st = await readState(page)
+      const colors = st.images.map((img) => STACK_SRC[Number(img.name.split('-').pop()) - 1]!.c)
+      const plan = planStack(st.images, st.stack)
+      check(
+        st.source?.width === plan.width && st.source?.height === plan.height,
+        `${label}: source is the stacked size ${plan.width}x${plan.height} (got ${st.source?.width}x${st.source?.height})`,
+      )
+      const W = Math.round(st.options.width)
+      const H = Math.round(st.options.height)
+      const passThrough = W === plan.width && H === plan.height
+      const probes: Array<[number, number]> = passThrough
+        ? plan.cells.map((c) => [c.x + (c.width >> 1), c.y + (c.height >> 1)] as [number, number])
+        : []
+      const result = await renderAndProbe(page, probes)
+      check(result.width === W && result.height === H, `${label}: output is ${result.width}x${result.height}, want ${W}x${H}`)
+      probes.forEach((p, i) => checkPixel(result.pixels[i]!, colors[i]!, PIXEL_TOL, `${label}: image ${i + 1} at (${p.join(',')})`))
+      console.log(`  ok    ${label}: ${plan.width}x${plan.height} -> ${W}x${H}, ${st.images.length} images, wasm ${result.ms.toFixed(0)} ms`)
+      return st
+    }
+
+    s = await readState(page)
+    check(s.mode === 'stack', `loadBitmaps opens Stack mode (got ${s.mode})`)
+    check(s.tool === 'layout', `Stack mode opens on the Layout tool (got ${s.tool})`)
+    const stackTabs = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('#toolStrip [data-tool]')].filter((b) => !b.hidden).map((b) => b.dataset.tool),
+    )
+    check(
+      stackTabs.join(',') === 'images,layout,sizing,ratio,size,position,background',
+      `Stack mode shows its tools plus the fit tools (got ${stackTabs.join(',')})`,
+    )
+    await assertStack('stack: default row, matched heights')
+
+    await page.click('[data-layout="vertical"]')
+    await assertStack('stack: column')
+    await page.click('[data-layout="grid"]')
+    await setInputValue(page, '#columnsInput', '2')
+    await assertStack('stack: grid of 2 columns')
+    await setInputValue(page, '#gapRange', '12')
+    s = await assertStack('stack: grid + 12px gap')
+    check(s.stack.gap === 12, `gap is 12 (got ${s.stack.gap})`)
+    await waitForPreview(page)
+    await page.screenshot({ path: join(OUT_DIR, 'browser-stack-layout.png') })
+
+    await clickTool(page, 'sizing')
+    await page.click('[data-match="none"]')
+    await page.click('[data-stack-align="end"]')
+    s = await assertStack('stack: grid, no matching, end-aligned')
+    check(s.stack.match === 'none' && s.stack.align === 'end', 'sizing chips update match/align')
+
+    await clickTool(page, 'images')
+    await page.click('.thumb [data-move="1"]')
+    s = await assertStack('stack: first image moved later')
+    check(
+      s.images.map((i) => i.name).join(',') === 'debug-bitmap-2,debug-bitmap-1,debug-bitmap-3',
+      `reorder swaps images 1 and 2 (got ${s.images.map((i) => i.name).join(',')})`,
+    )
+    const thumbCount = await page.$$eval('.thumb[data-key]', (els) => els.length)
+    check(thumbCount === 3, `images panel lists 3 thumbnails (got ${thumbCount})`)
+    await waitForPreview(page)
+    await page.screenshot({ path: join(OUT_DIR, 'browser-stack-images.png') })
+    await page.click('.thumb-strip > .thumb:nth-child(3) [data-remove]')
+    s = await assertStack('stack: third image removed')
+    check(s.images.length === 2, `removing leaves 2 images (got ${s.images.length})`)
+
+    await clickTool(page, 'ratio')
+    await page.click('[data-ratio="1:1"]')
+    s = await assertStack('stack: fitted 1:1')
+    const side = Math.max(s.source!.width, s.source!.height)
+    check(s.options.width === side && s.options.height === side, `1:1 squares the stacked size (${side})`)
+    await page.screenshot({ path: join(OUT_DIR, 'browser-stack.png') })
+
+    await clickTool(page, 'layout')
+    await page.click('[data-layout="horizontal"]')
+    s = await readState(page)
+    const followSide = Math.max(s.source!.width, s.source!.height)
+    check(s.options.width === followSide, 'the 1:1 target follows the stack when the layout changes')
+
+    await page.click('#homeBtn')
+    s = await readState(page)
+    const home = await page.evaluate(() => !(document.getElementById('intro') as HTMLElement).hidden)
+    check(s.mode === null && s.images.length === 0 && home, 'Back returns to the intro and drops the images')
+
+    // 15. console cleanliness -------------------------------------------------------
     step('console')
     check(consoleErrors.length === 0, `no console errors or page exceptions (got ${consoleErrors.length}):\n    ${consoleErrors.join('\n    ')}`)
   } finally {
